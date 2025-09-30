@@ -36,7 +36,8 @@ patch(Order.prototype, {
             const product = line.get_product();
             const qty = line.get_quantity();
             
-            if (product.type === 'product' && qty > 0) {
+            // Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
+            if ((product.type === 'product' || product.type === 'consu') && qty > 0) {
                 // Obtenir la quantité disponible depuis le cache POS ou faire un appel RPC
                 let availableQty = product.qty_available || 0;
                 
@@ -103,7 +104,8 @@ patch(Orderline.prototype, {
     set_quantity(quantity, keep_price) {
         const preventNegative = this.pos.config.prevent_negative_stock_pos;
         
-        if (preventNegative && this.product.type === 'product' && quantity > 0) {
+        // Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
+        if (preventNegative && (this.product.type === 'product' || this.product.type === 'consu') && quantity > 0) {
             const availableQty = this.product.qty_available || 0;
             
             if (quantity > availableQty) {
