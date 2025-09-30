@@ -36,11 +36,6 @@ Installation:
         'views/res_config_settings_views.xml',
         'views/sale_order_views.xml',
     ],
-    'assets': {
-        'point_of_sale.assets_prod': [
-            'odoo-stock_negative_prevention/static/src/js/pos_stock_validation.js',
-        ],
-    },
     'installable': True,
     'auto_install': False,
     'application': False,
