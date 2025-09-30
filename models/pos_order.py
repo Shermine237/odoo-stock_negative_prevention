@@ -1,5 +1,8 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class PosOrder(models.Model):
@@ -7,10 +10,13 @@ class PosOrder(models.Model):
 
     def _process_order(self, order, draft, existing_order):
         """Override pour vérifier le stock avant traitement de la commande POS"""
-        # Vérifier si la prévention est activée
-        prevent_negative = self.env['ir.config_parameter'].sudo().get_param(
-            'stock_negative_prevention.prevent_pos', False
+        # Vérifier si la prévention est activée (get_param retourne une string)
+        prevent_negative_param = self.env['ir.config_parameter'].sudo().get_param(
+            'stock_negative_prevention.prevent_pos', 'False'
         )
+        prevent_negative = prevent_negative_param in ('True', 'true', '1', 'yes')
+        
+        _logger.info(f"POS STOCK PREVENTION: prevent_negative_param={prevent_negative_param}, prevent_negative={prevent_negative}")
         
         if prevent_negative and not draft:
             self._check_pos_stock_availability(order)
@@ -32,7 +38,8 @@ class PosOrder(models.Model):
             if product_id and qty > 0:
                 product = self.env['product.product'].browse(product_id)
                 
-                if product.type == 'product':  # Seulement pour les produits stockables
+                # Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
+                if product.type in ('product', 'consu'):
                     # Déterminer l'emplacement de stock à vérifier
                     if stock_location_param:
                         location = self.env['stock.location'].browse(int(stock_location_param))
@@ -49,10 +56,12 @@ class PosOrder(models.Model):
                             location = warehouse.lot_stock_id if warehouse else None
                     
                     if location:
-                        # Calculer la quantité disponible
-                        available_qty = product.with_context(
-                            location=location.id
-                        ).qty_available
+                        # Calculer la quantité disponible avec la méthode correcte
+                        available_qty = self.env['stock.quant']._get_available_quantity(
+                            product, location
+                        )
+                        
+                        _logger.info(f"POS STOCK PREVENTION: Produit {product.display_name} - Demandé: {qty}, Disponible: {available_qty}")
                         
                         # Vérifier si la quantité demandée est disponible
                         if qty > available_qty:
@@ -85,31 +94,35 @@ class PosOrderLine(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         """Override pour vérifier le stock lors de la création de ligne POS"""
-        # Vérifier si la prévention est activée
-        prevent_negative = self.env['ir.config_parameter'].sudo().get_param(
-            'stock_negative_prevention.prevent_pos', False
+        # Vérifier si la prévention est activée (get_param retourne une string)
+        prevent_negative_param = self.env['ir.config_parameter'].sudo().get_param(
+            'stock_negative_prevention.prevent_pos', 'False'
         )
+        prevent_negative = prevent_negative_param in ('True', 'true', '1', 'yes')
         
         if prevent_negative:
             for vals in vals_list:
                 if vals.get('product_id') and vals.get('qty', 0) > 0:
                     product = self.env['product.product'].browse(vals['product_id'])
                     
-                    if product.type == 'product':  # Seulement pour les produits stockables
+                    # Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
+                    if product.type in ('product', 'consu'):
                         self._validate_pos_line_stock(product, vals.get('qty', 0))
         
         return super().create(vals_list)
 
     def write(self, vals):
         """Override pour vérifier le stock lors de la modification de ligne POS"""
-        # Vérifier si la prévention est activée
-        prevent_negative = self.env['ir.config_parameter'].sudo().get_param(
-            'stock_negative_prevention.prevent_pos', False
+        # Vérifier si la prévention est activée (get_param retourne une string)
+        prevent_negative_param = self.env['ir.config_parameter'].sudo().get_param(
+            'stock_negative_prevention.prevent_pos', 'False'
         )
+        prevent_negative = prevent_negative_param in ('True', 'true', '1', 'yes')
         
         if prevent_negative and 'qty' in vals:
             for line in self:
-                if line.product_id.type == 'product' and vals.get('qty', 0) > 0:
+                # Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
+                if line.product_id.type in ('product', 'consu') and vals.get('qty', 0) > 0:
                     self._validate_pos_line_stock(line.product_id, vals['qty'])
         
         return super().write(vals)
@@ -139,10 +152,10 @@ class PosOrderLine(models.Model):
                 location = warehouse.lot_stock_id if warehouse else None
         
         if location:
-            # Calculer la quantité disponible
-            available_qty = product.with_context(
-                location=location.id
-            ).qty_available
+            # Calculer la quantité disponible avec la méthode correcte
+            available_qty = self.env['stock.quant']._get_available_quantity(
+                product, location
+            )
             
             # Vérifier si la quantité demandée est disponible
             if qty > available_qty:

@@ -39,7 +39,8 @@ class SaleOrder(models.Model):
         for line in self.order_line:
             _logger.info(f"STOCK PREVENTION: Vérification ligne - Produit: {line.product_id.display_name}, Type: {line.product_id.type}, Qty: {line.product_uom_qty}")
             
-            if line.product_id.type == 'product':  # Seulement pour les produits stockables
+            # Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
+            if line.product_id.type in ('product', 'consu'):
                 # Déterminer l'emplacement de stock à vérifier
                 location = None
                 if stock_location_param and stock_location_param != 'False':
@@ -125,7 +126,7 @@ class SaleOrderLine(models.Model):
     @api.onchange('product_uom_qty')
     def _onchange_product_uom_qty_stock_check(self):
         """Vérification en temps réel lors de la modification de la quantité"""
-        if self.product_id and self.product_id.type == 'product':
+        if self.product_id and self.product_id.type in ('product', 'consu'):
             prevent_negative_param = self.env['ir.config_parameter'].sudo().get_param(
                 'stock_negative_prevention.prevent_sales', 'False'
             )
