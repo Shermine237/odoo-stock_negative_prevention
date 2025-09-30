@@ -8,7 +8,7 @@ _logger = logging.getLogger(__name__)
 class PosOrder(models.Model):
     _inherit = 'pos.order'
 
-    def _process_order(self, order, draft, existing_order):
+    def _process_order(self, order, draft, existing_order=None):
         """Override pour vérifier le stock avant traitement de la commande POS"""
         # Vérifier si la prévention est activée (get_param retourne une string)
         prevent_negative_param = self.env['ir.config_parameter'].sudo().get_param(
@@ -21,7 +21,11 @@ class PosOrder(models.Model):
         if prevent_negative and not draft:
             self._check_pos_stock_availability(order)
         
-        return super()._process_order(order, draft, existing_order)
+        # Appeler la méthode parent avec les bons arguments selon la version d'Odoo
+        if existing_order is not None:
+            return super()._process_order(order, draft, existing_order)
+        else:
+            return super()._process_order(order, draft)
 
     def _check_pos_stock_availability(self, order):
         """Vérifie la disponibilité du stock pour toutes les lignes de commande POS"""
