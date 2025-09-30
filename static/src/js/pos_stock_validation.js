@@ -1,13 +1,16 @@
-/** @odoo-module **/
-
-import { Order, Orderline } from "@point_of_sale/app/store/models";
-import { patch } from "@web/core/utils/patch";
-import { _t } from "@web/core/l10n/translation";
-import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
-
 // Log de confirmation que le module JavaScript est chargé
 console.log('🚀 STOCK NEGATIVE PREVENTION: Module JavaScript chargé avec succès !');
-console.log('📦 STOCK NEGATIVE PREVENTION: Patches appliqués pour Order, Orderline et PaymentScreen');
+console.log('📦 STOCK NEGATIVE PREVENTION: Version simplifiée pour Odoo 18');
+
+odoo.define('stock_negative_prevention.pos_stock_validation', function (require) {
+    'use strict';
+
+    var models = require('point_of_sale.models');
+    var screens = require('point_of_sale.screens');
+    var PopupWidget = require('point_of_sale.popups');
+    var rpc = require('web.rpc');
+
+    console.log('📦 STOCK NEGATIVE PREVENTION: Modules POS chargés avec succès !');
 
 patch(Order.prototype, {
     /**
