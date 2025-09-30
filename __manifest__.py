@@ -38,7 +38,7 @@ Installation:
     ],
     'assets': {
         'point_of_sale._assets_pos': [
-            'stock_negative_prevention/static/src/js/pos_stock_validation.js',
+            'odoo-stock_negative_prevention/static/src/js/pos_stock_validation.js',
         ],
     },
     'installable': True,
