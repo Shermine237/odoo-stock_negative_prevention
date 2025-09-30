@@ -37,7 +37,7 @@ Installation:
         'views/sale_order_views.xml',
     ],
     'assets': {
-        'point_of_sale.assets': [
+        'point_of_sale._assets_pos': [
             'stock_negative_prevention/static/src/js/pos_stock_validation.js',
         ],
     },
