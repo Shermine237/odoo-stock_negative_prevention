@@ -1,19 +1,22 @@
 /** @odoo-module **/
 
-import { Order } from "@point_of_sale/app/store/models";
+import { Order, Orderline } from "@point_of_sale/app/store/models";
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
+import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 
 patch(Order.prototype, {
     /**
      * Override pour vérifier le stock avant validation de la commande POS
+     * Gère TOUTES les commandes : nouvelles, importées, devis, etc.
      */
     async pay() {
         // Vérifier si la prévention est activée
         const preventNegative = this.pos.config.prevent_negative_stock_pos;
         
         if (preventNegative) {
-            const stockValidation = await this._checkStockAvailability();
+            console.log('STOCK VALIDATION: Vérification du stock avant paiement...');
+            const stockValidation = await this._checkStockAvailability(true); // Force la vérification RPC
             if (!stockValidation.success) {
                 this.pos.popup.add('ErrorPopup', {
                     title: _t('Stock Insuffisant'),
@@ -27,48 +30,91 @@ patch(Order.prototype, {
     },
 
     /**
-     * Vérifie la disponibilité du stock pour toutes les lignes de commande
+     * Override pour vérifier le stock lors de la finalisation
+     * Sécurité supplémentaire pour les commandes importées
      */
-    async _checkStockAvailability() {
+    async finalize() {
+        const preventNegative = this.pos.config.prevent_negative_stock_pos;
+        
+        if (preventNegative) {
+            console.log('STOCK VALIDATION: Vérification finale du stock...');
+            const stockValidation = await this._checkStockAvailability(true);
+            if (!stockValidation.success) {
+                this.pos.popup.add('ErrorPopup', {
+                    title: _t('Stock Insuffisant - Finalisation Bloquée'),
+                    body: stockValidation.message,
+                });
+                return false;
+            }
+        }
+        
+        return super.finalize(...arguments);
+    },
+
+    /**
+     * Vérifie la disponibilité du stock pour toutes les lignes de commande
+     * @param {boolean} forceRPC - Force l'appel RPC même si le stock est en cache
+     */
+    async _checkStockAvailability(forceRPC = false) {
         const insufficientProducts = [];
+        
+        console.log('STOCK VALIDATION: Vérification de', this.get_orderlines().length, 'lignes de commande');
         
         for (const line of this.get_orderlines()) {
             const product = line.get_product();
             const qty = line.get_quantity();
             
+            console.log('STOCK VALIDATION: Produit', product.display_name, 'Type:', product.type, 'Qty:', qty);
+            
             // Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
             if ((product.type === 'product' || product.type === 'consu') && qty > 0) {
-                // Obtenir la quantité disponible depuis le cache POS ou faire un appel RPC
-                let availableQty = product.qty_available || 0;
+                let availableQty = 0;
                 
-                // Si la quantité n'est pas en cache, faire un appel RPC
-                if (availableQty === undefined) {
+                // TOUJOURS faire un appel RPC pour avoir le stock en temps réel
+                // Particulièrement important pour les commandes importées
+                if (forceRPC || product.qty_available === undefined) {
                     try {
+                        console.log('STOCK VALIDATION: Appel RPC pour', product.display_name);
                         const result = await this.pos.orm.call(
-                            'product.product',
-                            'read',
-                            [product.id, ['qty_available']],
-                            {
-                                context: {
-                                    location: this.pos.config.stock_location_id ? 
-                                             this.pos.config.stock_location_id[0] : 
-                                             this.pos.config.picking_type_id[0]
-                                }
-                            }
+                            'stock.quant',
+                            '_get_available_quantity',
+                            [product.id, this.pos.config.stock_location_id ? 
+                                        this.pos.config.stock_location_id[0] : 
+                                        this.pos.config.picking_type_id ? 
+                                        this.pos.config.picking_type_id[0] : null]
                         );
-                        availableQty = result[0].qty_available;
+                        availableQty = result || 0;
+                        console.log('STOCK VALIDATION: Stock RPC pour', product.display_name, ':', availableQty);
                     } catch (error) {
-                        console.error('Erreur lors de la vérification du stock:', error);
-                        availableQty = 0;
+                        console.error('STOCK VALIDATION: Erreur RPC pour', product.display_name, ':', error);
+                        // Fallback sur l'ancienne méthode
+                        try {
+                            const fallbackResult = await this.pos.orm.call(
+                                'product.product',
+                                'read',
+                                [product.id, ['qty_available']]
+                            );
+                            availableQty = fallbackResult[0].qty_available || 0;
+                            console.log('STOCK VALIDATION: Stock fallback pour', product.display_name, ':', availableQty);
+                        } catch (fallbackError) {
+                            console.error('STOCK VALIDATION: Erreur fallback pour', product.display_name, ':', fallbackError);
+                            availableQty = 0;
+                        }
                     }
+                } else {
+                    availableQty = product.qty_available || 0;
+                    console.log('STOCK VALIDATION: Stock cache pour', product.display_name, ':', availableQty);
                 }
                 
+                console.log('STOCK VALIDATION: Comparaison -', product.display_name, '- Demandé:', qty, 'Disponible:', availableQty);
+                
                 if (qty > availableQty) {
+                    console.log('STOCK VALIDATION: STOCK INSUFFISANT pour', product.display_name);
                     insufficientProducts.push({
                         product: product.display_name,
                         requested: qty,
                         available: availableQty,
-                        uom: product.uom_id[1]
+                        uom: product.uom_id ? product.uom_id[1] : 'unité'
                     });
                 }
             }
@@ -94,8 +140,33 @@ patch(Order.prototype, {
     }
 });
 
+// Extension de l'écran de paiement pour intercepter TOUS les paiements
+patch(PaymentScreen.prototype, {
+    /**
+     * Override pour vérifier le stock avant TOUT paiement
+     * Intercepte les commandes importées, nouvelles, etc.
+     */
+    async validateOrder(isForceValidate) {
+        const order = this.pos.get_order();
+        const preventNegative = this.pos.config.prevent_negative_stock_pos;
+        
+        if (preventNegative && order) {
+            console.log('STOCK VALIDATION: Validation depuis PaymentScreen...');
+            const stockValidation = await order._checkStockAvailability(true); // Force RPC
+            if (!stockValidation.success) {
+                this.popup.add('ErrorPopup', {
+                    title: _t('Stock Insuffisant - Paiement Bloqué'),
+                    body: stockValidation.message,
+                });
+                return false;
+            }
+        }
+        
+        return super.validateOrder(isForceValidate);
+    }
+});
+
 // Extension du modèle Orderline pour validation en temps réel
-import { Orderline } from "@point_of_sale/app/store/models";
 
 patch(Orderline.prototype, {
     /**
