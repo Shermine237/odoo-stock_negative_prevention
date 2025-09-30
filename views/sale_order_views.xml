@@ -1,18 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <!-- Extension de la vue formulaire des commandes de vente -->
-        <record id="view_order_form_inherit_stock_negative" model="ir.ui.view">
-            <field name="name">sale.order.form.inherit.stock.negative</field>
-            <field name="model">sale.order</field>
-            <field name="inherit_id" ref="sale.view_order_form"/>
-            <field name="arch" type="xml">
-                <xpath expr="//field[@name='order_line']//tree//field[@name='product_uom_qty']" position="after">
-                    <field name="product_id" invisible="1"/>
-                </xpath>
-            </field>
-        </record>
-        
         <!-- Ajout d'un bouton pour vérifier le stock manuellement -->
         <record id="view_order_form_stock_check_button" model="ir.ui.view">
             <field name="name">sale.order.form.stock.check.button</field>
