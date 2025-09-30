@@ -82,21 +82,23 @@ class PosOrder(models.Model):
 class PosOrderLine(models.Model):
     _inherit = 'pos.order.line'
 
-    @api.model
-    def create(self, vals):
+    @api.model_create_multi
+    def create(self, vals_list):
         """Override pour vérifier le stock lors de la création de ligne POS"""
         # Vérifier si la prévention est activée
         prevent_negative = self.env['ir.config_parameter'].sudo().get_param(
             'stock_negative_prevention.prevent_pos', False
         )
         
-        if prevent_negative and vals.get('product_id') and vals.get('qty', 0) > 0:
-            product = self.env['product.product'].browse(vals['product_id'])
-            
-            if product.type == 'product':  # Seulement pour les produits stockables
-                self._validate_pos_line_stock(product, vals.get('qty', 0))
+        if prevent_negative:
+            for vals in vals_list:
+                if vals.get('product_id') and vals.get('qty', 0) > 0:
+                    product = self.env['product.product'].browse(vals['product_id'])
+                    
+                    if product.type == 'product':  # Seulement pour les produits stockables
+                        self._validate_pos_line_stock(product, vals.get('qty', 0))
         
-        return super().create(vals)
+        return super().create(vals_list)
 
     def write(self, vals):
         """Override pour vérifier le stock lors de la modification de ligne POS"""

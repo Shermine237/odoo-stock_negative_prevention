@@ -22,7 +22,7 @@
                             
                             <setting string="Emplacement de Stock à Vérifier" 
                                      help="Emplacement de stock à vérifier. Si vide, utilise l'emplacement par défaut de l'entrepôt"
-                                     attrs="{'invisible': [('prevent_negative_stock_sales', '=', False), ('prevent_negative_stock_pos', '=', False)]}">
+                                     invisible="not prevent_negative_stock_sales and not prevent_negative_stock_pos">
                                 <field name="stock_location_id"/>
                             </setting>
                         </block>
