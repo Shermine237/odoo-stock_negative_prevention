@@ -5,6 +5,10 @@ import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 
+// Log de confirmation que le module JavaScript est chargé
+console.log('🚀 STOCK NEGATIVE PREVENTION: Module JavaScript chargé avec succès !');
+console.log('📦 STOCK NEGATIVE PREVENTION: Patches appliqués pour Order, Orderline et PaymentScreen');
+
 patch(Order.prototype, {
     /**
      * Override pour vérifier le stock avant validation de la commande POS
