@@ -1,5 +1,8 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class SaleOrder(models.Model):
@@ -7,13 +10,19 @@ class SaleOrder(models.Model):
 
     def action_confirm(self):
         """Override pour vérifier le stock avant confirmation"""
-        # Vérifier si la prévention est activée
-        prevent_negative = self.env['ir.config_parameter'].sudo().get_param(
-            'stock_negative_prevention.prevent_sales', False
+        # Vérifier si la prévention est activée (get_param retourne une string, pas un boolean)
+        prevent_negative_param = self.env['ir.config_parameter'].sudo().get_param(
+            'stock_negative_prevention.prevent_sales', 'False'
         )
+        prevent_negative = prevent_negative_param in ('True', 'true', '1', 'yes')
+        
+        _logger.info(f"STOCK PREVENTION: prevent_negative_param={prevent_negative_param}, prevent_negative={prevent_negative}")
         
         if prevent_negative:
+            _logger.info("STOCK PREVENTION: Vérification du stock activée")
             self._check_stock_availability()
+        else:
+            _logger.info("STOCK PREVENTION: Vérification du stock désactivée")
         
         return super().action_confirm()
 
@@ -23,25 +32,38 @@ class SaleOrder(models.Model):
             'stock_negative_prevention.stock_location_id', False
         )
         
+        _logger.info(f"STOCK PREVENTION: stock_location_param={stock_location_param}")
+        
         insufficient_products = []
         
         for line in self.order_line:
+            _logger.info(f"STOCK PREVENTION: Vérification ligne - Produit: {line.product_id.display_name}, Type: {line.product_id.type}, Qty: {line.product_uom_qty}")
+            
             if line.product_id.type == 'product':  # Seulement pour les produits stockables
                 # Déterminer l'emplacement de stock à vérifier
-                if stock_location_param:
-                    location = self.env['stock.location'].browse(int(stock_location_param))
-                else:
+                location = None
+                if stock_location_param and stock_location_param != 'False':
+                    try:
+                        location = self.env['stock.location'].browse(int(stock_location_param))
+                        _logger.info(f"STOCK PREVENTION: Utilisation emplacement configuré: {location.name}")
+                    except:
+                        _logger.warning(f"STOCK PREVENTION: Erreur avec emplacement configuré: {stock_location_param}")
+                
+                if not location:
                     # Utiliser l'emplacement par défaut de l'entrepôt de l'entreprise
                     warehouse = self.env['stock.warehouse'].search([
                         ('company_id', '=', self.company_id.id)
                     ], limit=1)
                     location = warehouse.lot_stock_id if warehouse else None
+                    _logger.info(f"STOCK PREVENTION: Utilisation emplacement par défaut: {location.name if location else 'Aucun'}")
                 
                 if location:
-                    # Calculer la quantité disponible
-                    available_qty = line.product_id.with_context(
-                        location=location.id
-                    ).qty_available
+                    # Calculer la quantité disponible avec le bon contexte
+                    available_qty = self.env['stock.quant']._get_available_quantity(
+                        line.product_id, location
+                    )
+                    
+                    _logger.info(f"STOCK PREVENTION: Produit {line.product_id.display_name} - Demandé: {line.product_uom_qty}, Disponible: {available_qty}")
                     
                     # Vérifier si la quantité demandée est disponible
                     if line.product_uom_qty > available_qty:
@@ -51,6 +73,9 @@ class SaleOrder(models.Model):
                             'available': available_qty,
                             'uom': line.product_uom.name
                         })
+                        _logger.warning(f"STOCK PREVENTION: Stock insuffisant pour {line.product_id.display_name}")
+                else:
+                    _logger.warning(f"STOCK PREVENTION: Aucun emplacement trouvé pour vérifier le stock")
         
         # Lever une erreur si des produits n'ont pas suffisamment de stock
         if insufficient_products:
@@ -101,9 +126,10 @@ class SaleOrderLine(models.Model):
     def _onchange_product_uom_qty_stock_check(self):
         """Vérification en temps réel lors de la modification de la quantité"""
         if self.product_id and self.product_id.type == 'product':
-            prevent_negative = self.env['ir.config_parameter'].sudo().get_param(
-                'stock_negative_prevention.prevent_sales', False
+            prevent_negative_param = self.env['ir.config_parameter'].sudo().get_param(
+                'stock_negative_prevention.prevent_sales', 'False'
             )
+            prevent_negative = prevent_negative_param in ('True', 'true', '1', 'yes')
             
             if prevent_negative and self.product_uom_qty > 0:
                 stock_location_param = self.env['ir.config_parameter'].sudo().get_param(
@@ -111,18 +137,24 @@ class SaleOrderLine(models.Model):
                 )
                 
                 # Déterminer l'emplacement de stock
-                if stock_location_param:
-                    location = self.env['stock.location'].browse(int(stock_location_param))
-                else:
+                location = None
+                if stock_location_param and stock_location_param != 'False':
+                    try:
+                        location = self.env['stock.location'].browse(int(stock_location_param))
+                    except:
+                        pass
+                
+                if not location:
                     warehouse = self.env['stock.warehouse'].search([
                         ('company_id', '=', self.order_id.company_id.id)
                     ], limit=1)
                     location = warehouse.lot_stock_id if warehouse else None
                 
                 if location:
-                    available_qty = self.product_id.with_context(
-                        location=location.id
-                    ).qty_available
+                    # Utiliser la méthode correcte pour calculer le stock disponible
+                    available_qty = self.env['stock.quant']._get_available_quantity(
+                        self.product_id, location
+                    )
                     
                     if self.product_uom_qty > available_qty:
                         return {

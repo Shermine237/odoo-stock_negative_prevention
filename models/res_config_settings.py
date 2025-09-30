@@ -1,4 +1,7 @@
-from odoo import fields, models
+from odoo import api, fields, models
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class ResConfigSettings(models.TransientModel):
@@ -23,3 +26,17 @@ class ResConfigSettings(models.TransientModel):
         domain=[('usage', '=', 'internal')],
         help="Emplacement de stock à vérifier. Si vide, utilise l'emplacement par défaut de l'entrepôt"
     )
+
+    def set_values(self):
+        """Override pour logger les valeurs sauvegardées"""
+        super().set_values()
+        _logger.info(f"STOCK PREVENTION CONFIG: prevent_sales={self.prevent_negative_stock_sales}")
+        _logger.info(f"STOCK PREVENTION CONFIG: prevent_pos={self.prevent_negative_stock_pos}")
+        _logger.info(f"STOCK PREVENTION CONFIG: stock_location_id={self.stock_location_id.id if self.stock_location_id else 'None'}")
+
+    @api.model
+    def get_values(self):
+        """Override pour logger les valeurs récupérées"""
+        res = super().get_values()
+        _logger.info(f"STOCK PREVENTION CONFIG GET: {res}")
+        return res
