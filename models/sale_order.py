@@ -39,12 +39,6 @@ class SaleOrder(models.Model):
 
     def _check_stock_availability(self):
         """Vérifie la disponibilité du stock pour toutes les lignes de commande"""
-        stock_location_param = self.env['ir.config_parameter'].sudo().get_param(
-            'stock_negative_prevention.stock_location_id', False
-        )
-        
-        _logger.info(f"STOCK PREVENTION: stock_location_param={stock_location_param}")
-        
         insufficient_products = []
         
         for line in self.order_line:
@@ -52,22 +46,12 @@ class SaleOrder(models.Model):
             
             # Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
             if line.product_id.type in ('product', 'consu'):
-                # Déterminer l'emplacement de stock à vérifier
-                location = None
-                if stock_location_param and stock_location_param != 'False':
-                    try:
-                        location = self.env['stock.location'].browse(int(stock_location_param))
-                        _logger.info(f"STOCK PREVENTION: Utilisation emplacement configuré: {location.name}")
-                    except:
-                        _logger.warning(f"STOCK PREVENTION: Erreur avec emplacement configuré: {stock_location_param}")
-                
-                if not location:
-                    # Utiliser l'emplacement par défaut de l'entrepôt de l'entreprise
-                    warehouse = self.env['stock.warehouse'].search([
-                        ('company_id', '=', self.company_id.id)
-                    ], limit=1)
-                    location = warehouse.lot_stock_id if warehouse else None
-                    _logger.info(f"STOCK PREVENTION: Utilisation emplacement par défaut: {location.name if location else 'Aucun'}")
+                # Utiliser l'emplacement par défaut de l'entrepôt de l'entreprise
+                warehouse = self.env['stock.warehouse'].search([
+                    ('company_id', '=', self.company_id.id)
+                ], limit=1)
+                location = warehouse.lot_stock_id if warehouse else None
+                _logger.info(f"STOCK PREVENTION: Utilisation entrepôt: {warehouse.name if warehouse else 'Aucun'}")
                 
                 if location:
                     # Calculer la quantité disponible avec la méthode corrigée
@@ -142,23 +126,11 @@ class SaleOrderLine(models.Model):
             prevent_negative = prevent_negative_param in ('True', 'true', '1', 'yes')
             
             if prevent_negative and self.product_uom_qty > 0:
-                stock_location_param = self.env['ir.config_parameter'].sudo().get_param(
-                    'stock_negative_prevention.stock_location_id', False
-                )
-                
-                # Déterminer l'emplacement de stock
-                location = None
-                if stock_location_param and stock_location_param != 'False':
-                    try:
-                        location = self.env['stock.location'].browse(int(stock_location_param))
-                    except:
-                        pass
-                
-                if not location:
-                    warehouse = self.env['stock.warehouse'].search([
-                        ('company_id', '=', self.order_id.company_id.id)
-                    ], limit=1)
-                    location = warehouse.lot_stock_id if warehouse else None
+                # Utiliser l'entrepôt par défaut de l'entreprise
+                warehouse = self.env['stock.warehouse'].search([
+                    ('company_id', '=', self.order_id.company_id.id)
+                ], limit=1)
+                location = warehouse.lot_stock_id if warehouse else None
                 
                 if location:
                     # Utiliser la méthode corrigée pour calculer le stock disponible

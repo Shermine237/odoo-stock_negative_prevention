@@ -16,15 +16,8 @@ class ResConfigSettings(models.TransientModel):
     prevent_negative_stock_pos = fields.Boolean(
         string="Prévention Stock Négatif - Point de Vente",
         config_parameter='stock_negative_prevention.prevent_pos',
-        help="Empêche la validation des commandes point de vente si le stock est insuffisant"
-    )
-    
-    stock_location_id = fields.Many2one(
-        'stock.location',
-        string="Emplacement de Stock à Vérifier",
-        config_parameter='stock_negative_prevention.stock_location_id',
-        domain=[('usage', '=', 'internal')],
-        help="Emplacement de stock à vérifier. Si vide, utilise l'emplacement par défaut de l'entrepôt"
+        help="Empêche la validation des commandes point de vente si le stock est insuffisant. "
+             "Utilise l'entrepôt défini dans la configuration du Point de Vente."
     )
 
     def set_values(self):
@@ -32,7 +25,6 @@ class ResConfigSettings(models.TransientModel):
         super().set_values()
         _logger.info(f"STOCK PREVENTION CONFIG: prevent_sales={self.prevent_negative_stock_sales}")
         _logger.info(f"STOCK PREVENTION CONFIG: prevent_pos={self.prevent_negative_stock_pos}")
-        _logger.info(f"STOCK PREVENTION CONFIG: stock_location_id={self.stock_location_id.id if self.stock_location_id else 'None'}")
 
     @api.model
     def get_values(self):

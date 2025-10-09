@@ -16,14 +16,8 @@
                             </setting>
                             
                             <setting string="Empêcher POS avec Stock Négatif" 
-                                     help="Empêche la validation des commandes point de vente si le stock est insuffisant">
+                                     help="Empêche la validation des commandes point de vente si le stock est insuffisant. Utilise l'entrepôt défini dans la configuration du Point de Vente.">
                                 <field name="prevent_negative_stock_pos"/>
-                            </setting>
-                            
-                            <setting string="Emplacement de Stock à Vérifier" 
-                                     help="Emplacement de stock à vérifier. Si vide, utilise l'emplacement par défaut de l'entrepôt"
-                                     invisible="not prevent_negative_stock_sales and not prevent_negative_stock_pos">
-                                <field name="stock_location_id"/>
                             </setting>
                         </block>
                     </app>
