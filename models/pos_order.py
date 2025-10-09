@@ -8,6 +8,17 @@ _logger = logging.getLogger(__name__)
 class PosOrder(models.Model):
     _inherit = 'pos.order'
 
+    def _get_available_quantity(self, product, location):
+        """Récupère la quantité disponible d'un produit dans un emplacement
+        Méthode inspirée du module mrp_stock_validation pour un calcul correct"""
+        quants = self.env['stock.quant'].search([
+            ('product_id', '=', product.id),
+            ('location_id', '=', location.id),
+        ])
+        available_qty = sum(quants.mapped('available_quantity'))
+        _logger.info(f"POS STOCK PREVENTION: Calcul stock pour {product.display_name} dans {location.name}: {available_qty}")
+        return available_qty
+
     def _process_order(self, order, draft, existing_order=None):
         """Override pour vérifier le stock avant traitement de la commande POS"""
         # Vérifier si la prévention est activée (get_param retourne une string)
@@ -60,10 +71,8 @@ class PosOrder(models.Model):
                             location = warehouse.lot_stock_id if warehouse else None
                     
                     if location:
-                        # Calculer la quantité disponible avec la méthode correcte
-                        available_qty = self.env['stock.quant']._get_available_quantity(
-                            product, location
-                        )
+                        # Calculer la quantité disponible avec la méthode corrigée
+                        available_qty = self._get_available_quantity(product, location)
                         
                         _logger.info(f"POS STOCK PREVENTION: Produit {product.display_name} - Demandé: {qty}, Disponible: {available_qty}")
                         
@@ -156,10 +165,8 @@ class PosOrderLine(models.Model):
                 location = warehouse.lot_stock_id if warehouse else None
         
         if location:
-            # Calculer la quantité disponible avec la méthode correcte
-            available_qty = self.env['stock.quant']._get_available_quantity(
-                product, location
-            )
+            # Calculer la quantité disponible avec la méthode corrigée
+            available_qty = self.order_id._get_available_quantity(product, location)
             
             # Vérifier si la quantité demandée est disponible
             if qty > available_qty:

@@ -26,6 +26,17 @@ class SaleOrder(models.Model):
         
         return super().action_confirm()
 
+    def _get_available_quantity(self, product, location):
+        """Récupère la quantité disponible d'un produit dans un emplacement
+        Méthode inspirée du module mrp_stock_validation pour un calcul correct"""
+        quants = self.env['stock.quant'].search([
+            ('product_id', '=', product.id),
+            ('location_id', '=', location.id),
+        ])
+        available_qty = sum(quants.mapped('available_quantity'))
+        _logger.info(f"STOCK PREVENTION: Calcul stock pour {product.display_name} dans {location.name}: {available_qty}")
+        return available_qty
+
     def _check_stock_availability(self):
         """Vérifie la disponibilité du stock pour toutes les lignes de commande"""
         stock_location_param = self.env['ir.config_parameter'].sudo().get_param(
@@ -59,10 +70,8 @@ class SaleOrder(models.Model):
                     _logger.info(f"STOCK PREVENTION: Utilisation emplacement par défaut: {location.name if location else 'Aucun'}")
                 
                 if location:
-                    # Calculer la quantité disponible avec le bon contexte
-                    available_qty = self.env['stock.quant']._get_available_quantity(
-                        line.product_id, location
-                    )
+                    # Calculer la quantité disponible avec la méthode corrigée
+                    available_qty = self._get_available_quantity(line.product_id, location)
                     
                     _logger.info(f"STOCK PREVENTION: Produit {line.product_id.display_name} - Demandé: {line.product_uom_qty}, Disponible: {available_qty}")
                     
@@ -152,10 +161,8 @@ class SaleOrderLine(models.Model):
                     location = warehouse.lot_stock_id if warehouse else None
                 
                 if location:
-                    # Utiliser la méthode correcte pour calculer le stock disponible
-                    available_qty = self.env['stock.quant']._get_available_quantity(
-                        self.product_id, location
-                    )
+                    # Utiliser la méthode corrigée pour calculer le stock disponible
+                    available_qty = self.order_id._get_available_quantity(self.product_id, location)
                     
                     if self.product_uom_qty > available_qty:
                         return {
