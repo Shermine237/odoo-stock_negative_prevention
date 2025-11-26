@@ -71,9 +71,11 @@ class PosOrder(models.Model):
 
                         if not warehouse or not warehouse.lot_stock_id:
                             raise UserError(_(
-                                "Le type d'opération du POS (%s) n'a pas d'entrepôt ou d'emplacement de stock principal.\n"
+                                "Le type d'opération du POS %(picking_type)s n'a pas d'entrepôt ou d'emplacement de stock principal.\n"
                                 "Configurez warehouse_id et son lot_stock_id sur l'entrepôt lié au picking type."
-                            ) % (picking_type.display_name,))
+                            ) % {
+                                'picking_type': picking_type.display_name,
+                            })
 
                         location = warehouse.lot_stock_id
                         _logger.info(
@@ -103,25 +105,25 @@ class PosOrder(models.Model):
                         # Vérifier si la quantité demandée est disponible
                         if qty > available_qty:
                             insufficient_products.append({
-                                'product': product.display_name,
-                                'requested': qty,
-                                'available': available_qty,
-                                'uom': product.uom_id.name
+                                'product': product,
+                                'available_qty': available_qty,
+                                'requested_qty': qty,
+                                'warehouse_name': warehouse.display_name if 'warehouse' in locals() and warehouse else None,
                             })
         
         # Lever une erreur si des produits n'ont pas suffisamment de stock
         if insufficient_products:
             error_msg = _("Stock insuffisant pour les produits suivants :\n\n")
             for product_info in insufficient_products:
-                error_msg += _("• %s : Demandé %.2f %s, Disponible %.2f %s\n") % (
-                    product_info['product'],
-                    product_info['requested'],
-                    product_info['uom'],
-                    product_info['available'],
-                    product_info['uom']
-                )
+                error_msg += _("• %(product)s : Demandé %(requested).2f %(uom)s, Disponible %(available).2f %(uom)s dans l'entrepôt %(warehouse)s\n") % {
+                    'product': product_info['product'].display_name,
+                    'requested': product_info['requested_qty'],
+                    'available': product_info['available_qty'],
+                    'uom': product_info['product'].uom_id.name,
+                    'warehouse': product_info['warehouse_name'] or _('Inconnu'),
+                }
             error_msg += _("\nVeuillez ajuster les quantités ou réapprovisionner le stock.")
-            
+
             raise UserError(error_msg)
 
 
@@ -208,18 +210,23 @@ class PosOrderLine(models.Model):
         if location:
             # Calculer la quantité disponible avec la méthode corrigée
             available_qty = self.order_id._get_available_quantity(product, location)
-            
+
+            # Récupérer le nom de l'entrepôt associé au picking type, si possible
+            warehouse_name = None
+            if 'session' in locals() and session.config_id and session.config_id.picking_type_id and getattr(session.config_id.picking_type_id, 'warehouse_id', False):
+                warehouse_name = session.config_id.picking_type_id.warehouse_id.display_name
+
             # Vérifier si la quantité demandée est disponible
             if qty > available_qty:
                 raise UserError(_(
-                    "Stock insuffisant pour %s.\n"
-                    "Quantité demandée : %.2f %s\n"
-                    "Quantité disponible : %.2f %s\n\n"
+                    "Stock insuffisant pour %(product)s dans l'entrepôt %(warehouse)s.\n"
+                    "Quantité demandée : %(requested).2f %(uom)s\n"
+                    "Quantité disponible : %(available).2f %(uom)s\n\n"
                     "Veuillez ajuster la quantité ou réapprovisionner le stock."
-                ) % (
-                    product.display_name,
-                    qty,
-                    product.uom_id.name,
-                    available_qty,
-                    product.uom_id.name
-                ))
+                ) % {
+                    'product': product.display_name,
+                    'warehouse': warehouse_name or _('Inconnu'),
+                    'requested': qty,
+                    'available': available_qty,
+                    'uom': product.uom_id.name,
+                })
