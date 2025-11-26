@@ -52,7 +52,8 @@ class PosOrder(models.Model):
                 # Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
                 if product.type in ('product', 'consu'):
                     # Déterminer l'emplacement de stock à vérifier
-                    session = self.env['pos.session'].browse(order.get('pos_session_id'))
+                    # En Odoo 18, la clé standard dans le dict "order" est 'session_id'
+                    session = self.env['pos.session'].browse(order.get('session_id'))
                     location = None
                     
                     if session and session.config_id and session.config_id.picking_type_id:
