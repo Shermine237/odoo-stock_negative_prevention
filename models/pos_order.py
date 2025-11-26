@@ -186,26 +186,16 @@ class PosOrderLine(models.Model):
                     warehouse.lot_stock_id.display_name if getattr(warehouse, 'lot_stock_id', False) else None,
                 )
 
-                if not warehouse or not warehouse.lot_stock_id:
-                    raise UserError(_(
-                        "Le type d'opération du POS (%s) n'a pas d'entrepôt ou d'emplacement de stock principal.\n"
-                        "Configurez warehouse_id et son lot_stock_id sur l'entrepôt lié au picking type."
-                    ) % (picking_type.display_name,))
+                # Si l'entrepôt ou son emplacement principal ne sont pas configurés ici,
+                # on ne lève pas d'erreur au niveau de la ligne : on laisse le contrôle
+                # global (_check_pos_stock_availability) gérer la configuration.
+                if warehouse and warehouse.lot_stock_id:
+                    location = warehouse.lot_stock_id
 
-                location = warehouse.lot_stock_id
-
+        # Si on n'a pas réussi à déterminer une localisation à ce niveau,
+        # on sort silencieusement : pas d'erreur de config ici.
         if not location:
-            # Impossible de déterminer la localisation de stock pour le POS
-            _logger.warning(
-                "POS STOCK PREVENTION DEBUG LINE: location introuvable pour session=%s, config=%s, picking_type=%s",
-                session.display_name if 'session' in locals() else None,
-                session.config_id.display_name if 'session' in locals() and session.config_id else None,
-                session.config_id.picking_type_id.display_name if 'session' in locals() and session.config_id and session.config_id.picking_type_id else None,
-            )
-            raise UserError(_(
-                "Impossible de déterminer l'emplacement de stock pour le point de vente.\n"
-                "Vérifiez que le type d'opération du POS possède un entrepôt configuré (picking_type_id.warehouse_id)."
-            ))
+            return
         
         if location:
             # Calculer la quantité disponible avec la méthode corrigée
