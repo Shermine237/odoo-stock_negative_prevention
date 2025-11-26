@@ -55,26 +55,27 @@ class PosOrder(models.Model):
                     session = self.env['pos.session'].browse(order.get('pos_session_id'))
                     location = None
                     
-                    if session and session.config_id:
-                        # Utiliser OBLIGATOIREMENT l'entrepôt du point de vente
-                        warehouse = getattr(session.config_id, 'warehouse_id', False)
-                        if not warehouse:
+                    if session and session.config_id and session.config_id.picking_type_id:
+                        picking_type = session.config_id.picking_type_id
+
+                        warehouse = getattr(picking_type, 'warehouse_id', False)
+                        if not warehouse or not warehouse.lot_stock_id:
                             raise UserError(_(
-                                "Aucun entrepôt n'est configuré sur le point de vente %s. "
-                                "Veuillez définir un entrepôt (warehouse_id) sur la configuration du POS."
-                            ) % (session.config_id.display_name,))
+                                "Le type d'opération du POS (%s) n'a pas d'entrepôt ou d'emplacement de stock principal.\n"
+                                "Configurez warehouse_id et son lot_stock_id sur l'entrepôt lié au picking type."
+                            ) % (picking_type.display_name,))
 
                         location = warehouse.lot_stock_id
                         _logger.info(
-                            "POS STOCK PREVENTION: Utilisation entrepôt POS '%s' (emplacement: %s)"
+                            "POS STOCK PREVENTION: Utilisation entrepôt picking type '%s' (emplacement: %s)"
                             % (warehouse.display_name, location.display_name)
                         )
 
                     if not location:
-                        # Cas extrême : on ne devrait jamais arriver ici si le POS est bien configuré
+                        # Impossible de déterminer la localisation de stock du POS
                         raise UserError(_(
-                            "Impossible de déterminer l'emplacement de stock pour le point de vente. "
-                            "Vérifiez la configuration de l'entrepôt du POS."
+                            "Impossible de déterminer l'emplacement de stock pour le point de vente.\n"
+                            "Vérifiez que le type d'opération du POS possède un entrepôt configuré (picking_type_id.warehouse_id)."
                         ))
                     
                     if location:
@@ -154,22 +155,23 @@ class PosOrderLine(models.Model):
         # Déterminer l'emplacement de stock
         if hasattr(self, 'order_id') and self.order_id.session_id:
             session = self.order_id.session_id
-            if session.config_id:
-                # Utiliser OBLIGATOIREMENT l'entrepôt du point de vente
-                warehouse = getattr(session.config_id, 'warehouse_id', False)
-                if not warehouse:
+            if session.config_id and session.config_id.picking_type_id:
+                picking_type = session.config_id.picking_type_id
+
+                warehouse = getattr(picking_type, 'warehouse_id', False)
+                if not warehouse or not warehouse.lot_stock_id:
                     raise UserError(_(
-                        "Aucun entrepôt n'est configuré sur le point de vente %s. "
-                        "Veuillez définir un entrepôt (warehouse_id) sur la configuration du POS."
-                    ) % (session.config_id.display_name,))
+                        "Le type d'opération du POS (%s) n'a pas d'entrepôt ou d'emplacement de stock principal.\n"
+                        "Configurez warehouse_id et son lot_stock_id sur l'entrepôt lié au picking type."
+                    ) % (picking_type.display_name,))
 
                 location = warehouse.lot_stock_id
 
         if not location:
-            # Cas extrême : on ne devrait jamais arriver ici si le POS est bien configuré
+            # Impossible de déterminer la localisation de stock pour le POS
             raise UserError(_(
-                "Impossible de déterminer l'emplacement de stock pour le point de vente. "
-                "Vérifiez la configuration de l'entrepôt du POS."
+                "Impossible de déterminer l'emplacement de stock pour le point de vente.\n"
+                "Vérifiez que le type d'opération du POS possède un entrepôt configuré (picking_type_id.warehouse_id)."
             ))
         
         if location:
