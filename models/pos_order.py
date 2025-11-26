@@ -56,22 +56,26 @@ class PosOrder(models.Model):
                     location = None
                     
                     if session and session.config_id:
-                        # Utiliser l'entrepôt du point de vente si défini
-                        if hasattr(session.config_id, 'warehouse_id') and session.config_id.warehouse_id:
-                            location = session.config_id.warehouse_id.lot_stock_id
-                            _logger.info(f"POS STOCK PREVENTION: Utilisation entrepôt POS: {session.config_id.warehouse_id.name}")
-                        # Sinon utiliser l'emplacement du picking type
-                        elif session.config_id.picking_type_id:
-                            location = session.config_id.picking_type_id.default_location_src_id
-                            _logger.info(f"POS STOCK PREVENTION: Utilisation emplacement picking type: {location.name}")
-                    
+                        # Utiliser OBLIGATOIREMENT l'entrepôt du point de vente
+                        warehouse = getattr(session.config_id, 'warehouse_id', False)
+                        if not warehouse:
+                            raise UserError(_(
+                                "Aucun entrepôt n'est configuré sur le point de vente %s. "
+                                "Veuillez définir un entrepôt (warehouse_id) sur la configuration du POS."
+                            ) % (session.config_id.display_name,))
+
+                        location = warehouse.lot_stock_id
+                        _logger.info(
+                            "POS STOCK PREVENTION: Utilisation entrepôt POS '%s' (emplacement: %s)"
+                            % (warehouse.display_name, location.display_name)
+                        )
+
                     if not location:
-                        # Fallback sur l'entrepôt par défaut de l'entreprise
-                        warehouse = self.env['stock.warehouse'].search([
-                            ('company_id', '=', self.env.company.id)
-                        ], limit=1)
-                        location = warehouse.lot_stock_id if warehouse else None
-                        _logger.info(f"POS STOCK PREVENTION: Utilisation entrepôt par défaut: {warehouse.name if warehouse else 'Aucun'}")
+                        # Cas extrême : on ne devrait jamais arriver ici si le POS est bien configuré
+                        raise UserError(_(
+                            "Impossible de déterminer l'emplacement de stock pour le point de vente. "
+                            "Vérifiez la configuration de l'entrepôt du POS."
+                        ))
                     
                     if location:
                         # Calculer la quantité disponible avec la méthode corrigée
@@ -151,19 +155,22 @@ class PosOrderLine(models.Model):
         if hasattr(self, 'order_id') and self.order_id.session_id:
             session = self.order_id.session_id
             if session.config_id:
-                # Utiliser l'entrepôt du point de vente si défini
-                if hasattr(session.config_id, 'warehouse_id') and session.config_id.warehouse_id:
-                    location = session.config_id.warehouse_id.lot_stock_id
-                # Sinon utiliser l'emplacement du picking type
-                elif session.config_id.picking_type_id:
-                    location = session.config_id.picking_type_id.default_location_src_id
-        
+                # Utiliser OBLIGATOIREMENT l'entrepôt du point de vente
+                warehouse = getattr(session.config_id, 'warehouse_id', False)
+                if not warehouse:
+                    raise UserError(_(
+                        "Aucun entrepôt n'est configuré sur le point de vente %s. "
+                        "Veuillez définir un entrepôt (warehouse_id) sur la configuration du POS."
+                    ) % (session.config_id.display_name,))
+
+                location = warehouse.lot_stock_id
+
         if not location:
-            # Fallback sur l'entrepôt par défaut de l'entreprise
-            warehouse = self.env['stock.warehouse'].search([
-                ('company_id', '=', self.env.company.id)
-            ], limit=1)
-            location = warehouse.lot_stock_id if warehouse else None
+            # Cas extrême : on ne devrait jamais arriver ici si le POS est bien configuré
+            raise UserError(_(
+                "Impossible de déterminer l'emplacement de stock pour le point de vente. "
+                "Vérifiez la configuration de l'entrepôt du POS."
+            ))
         
         if location:
             # Calculer la quantité disponible avec la méthode corrigée
