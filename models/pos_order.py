@@ -59,6 +59,15 @@ class PosOrder(models.Model):
                         picking_type = session.config_id.picking_type_id
 
                         warehouse = getattr(picking_type, 'warehouse_id', False)
+                        _logger.info(
+                            "POS STOCK PREVENTION DEBUG: session=%s config=%s picking_type=%s warehouse=%s lot_stock_id=%s",
+                            session.display_name,
+                            session.config_id.display_name,
+                            picking_type.display_name,
+                            warehouse.display_name if warehouse else None,
+                            warehouse.lot_stock_id.display_name if getattr(warehouse, 'lot_stock_id', False) else None,
+                        )
+
                         if not warehouse or not warehouse.lot_stock_id:
                             raise UserError(_(
                                 "Le type d'opération du POS (%s) n'a pas d'entrepôt ou d'emplacement de stock principal.\n"
@@ -73,6 +82,12 @@ class PosOrder(models.Model):
 
                     if not location:
                         # Impossible de déterminer la localisation de stock du POS
+                        _logger.warning(
+                            "POS STOCK PREVENTION DEBUG: location introuvable pour session=%s, config=%s, picking_type=%s",
+                            session.display_name if 'session' in locals() else None,
+                            session.config_id.display_name if 'session' in locals() and session.config_id else None,
+                            session.config_id.picking_type_id.display_name if 'session' in locals() and session.config_id and session.config_id.picking_type_id else None,
+                        )
                         raise UserError(_(
                             "Impossible de déterminer l'emplacement de stock pour le point de vente.\n"
                             "Vérifiez que le type d'opération du POS possède un entrepôt configuré (picking_type_id.warehouse_id)."
@@ -159,6 +174,15 @@ class PosOrderLine(models.Model):
                 picking_type = session.config_id.picking_type_id
 
                 warehouse = getattr(picking_type, 'warehouse_id', False)
+                _logger.info(
+                    "POS STOCK PREVENTION DEBUG LINE: session=%s config=%s picking_type=%s warehouse=%s lot_stock_id=%s",
+                    session.display_name,
+                    session.config_id.display_name,
+                    picking_type.display_name,
+                    warehouse.display_name if warehouse else None,
+                    warehouse.lot_stock_id.display_name if getattr(warehouse, 'lot_stock_id', False) else None,
+                )
+
                 if not warehouse or not warehouse.lot_stock_id:
                     raise UserError(_(
                         "Le type d'opération du POS (%s) n'a pas d'entrepôt ou d'emplacement de stock principal.\n"
@@ -169,6 +193,12 @@ class PosOrderLine(models.Model):
 
         if not location:
             # Impossible de déterminer la localisation de stock pour le POS
+            _logger.warning(
+                "POS STOCK PREVENTION DEBUG LINE: location introuvable pour session=%s, config=%s, picking_type=%s",
+                session.display_name if 'session' in locals() else None,
+                session.config_id.display_name if 'session' in locals() and session.config_id else None,
+                session.config_id.picking_type_id.display_name if 'session' in locals() and session.config_id and session.config_id.picking_type_id else None,
+            )
             raise UserError(_(
                 "Impossible de déterminer l'emplacement de stock pour le point de vente.\n"
                 "Vérifiez que le type d'opération du POS possède un entrepôt configuré (picking_type_id.warehouse_id)."
