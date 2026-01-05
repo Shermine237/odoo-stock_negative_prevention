@@ -31,19 +31,25 @@ class SaleOrder(models.Model):
         Méthode inspirée du module mrp_stock_validation pour un calcul correct"""
         quants = self.env['stock.quant'].search([
             ('product_id', '=', product.id),
-            ('location_id', '=', location.id),
+            ('location_id', 'child_of', location.id),
         ])
         available_qty = sum(quants.mapped('available_quantity'))
         _logger.info(f"STOCK PREVENTION: Calcul stock pour {product.display_name} dans {location.name}: {available_qty}")
         return available_qty
 
+    def _get_stock_check_warehouse_location(self):
+        warehouse = self.warehouse_id
+        if not warehouse:
+            warehouse = self.env['stock.warehouse'].search([
+                ('company_id', '=', self.company_id.id)
+            ], limit=1)
+        location = warehouse.lot_stock_id if warehouse else None
+        return warehouse, location
+
     def _check_stock_availability(self):
         """Vérifie la disponibilité du stock pour toutes les lignes de commande"""
         insufficient_products = []
-        warehouse = self.env['stock.warehouse'].search([
-            ('company_id', '=', self.company_id.id)
-        ], limit=1)
-        location = warehouse.lot_stock_id if warehouse else None
+        warehouse, location = self._get_stock_check_warehouse_location()
         warehouse_name = warehouse.display_name if warehouse else None
         
         for line in self.order_line:
@@ -57,16 +63,22 @@ class SaleOrder(models.Model):
                 if location:
                     # Calculer la quantité disponible avec la méthode corrigée
                     available_qty = self._get_available_quantity(line.product_id, location)
+                    requested_qty = line.product_uom._compute_quantity(
+                        line.product_uom_qty,
+                        line.product_id.uom_id,
+                    )
                     
-                    _logger.info(f"STOCK PREVENTION: Produit {line.product_id.display_name} - Demandé: {line.product_uom_qty}, Disponible: {available_qty}")
+                    _logger.info(
+                        f"STOCK PREVENTION: Produit {line.product_id.display_name} - Demandé: {requested_qty} ({line.product_id.uom_id.name}), Disponible: {available_qty} ({line.product_id.uom_id.name})"
+                    )
                     
                     # Vérifier si la quantité demandée est disponible
-                    if line.product_uom_qty > available_qty:
+                    if requested_qty > available_qty:
                         insufficient_products.append({
                             'product': line.product_id.display_name,
-                            'requested': line.product_uom_qty,
+                            'requested': requested_qty,
                             'available': available_qty,
-                            'uom': line.product_uom.name,
+                            'uom': line.product_id.uom_id.name,
                             'warehouse': warehouse_name,
                         })
                         _logger.warning(f"STOCK PREVENTION: Stock insuffisant pour {line.product_id.display_name}")
@@ -130,17 +142,18 @@ class SaleOrderLine(models.Model):
             
             if prevent_negative and self.product_uom_qty > 0:
                 # Utiliser l'entrepôt par défaut de l'entreprise
-                warehouse = self.env['stock.warehouse'].search([
-                    ('company_id', '=', self.order_id.company_id.id)
-                ], limit=1)
-                location = warehouse.lot_stock_id if warehouse else None
+                warehouse, location = self.order_id._get_stock_check_warehouse_location()
                 warehouse_name = warehouse.display_name if warehouse else None
                 
                 if location:
                     # Utiliser la méthode corrigée pour calculer le stock disponible
                     available_qty = self.order_id._get_available_quantity(self.product_id, location)
+                    requested_qty = self.product_uom._compute_quantity(
+                        self.product_uom_qty,
+                        self.product_id.uom_id,
+                    )
                     
-                    if self.product_uom_qty > available_qty:
+                    if requested_qty > available_qty:
                         return {
                             'warning': {
                                 'title': _('Stock insuffisant'),
@@ -152,10 +165,10 @@ class SaleOrderLine(models.Model):
                                     'La commande ne pourra pas être confirmée en l\'état.'
                                 ) % (
                                     self.product_id.display_name,
-                                    self.product_uom_qty,
-                                    self.product_uom.name,
+                                    requested_qty,
+                                    self.product_id.uom_id.name,
                                     available_qty,
-                                    self.product_uom.name,
+                                    self.product_id.uom_id.name,
                                     warehouse_name or _('Inconnu'),
                                 )
                             }
