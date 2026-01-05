@@ -40,6 +40,11 @@ class SaleOrder(models.Model):
     def _check_stock_availability(self):
         """Vérifie la disponibilité du stock pour toutes les lignes de commande"""
         insufficient_products = []
+        warehouse = self.env['stock.warehouse'].search([
+            ('company_id', '=', self.company_id.id)
+        ], limit=1)
+        location = warehouse.lot_stock_id if warehouse else None
+        warehouse_name = warehouse.display_name if warehouse else None
         
         for line in self.order_line:
             _logger.info(f"STOCK PREVENTION: Vérification ligne - Produit: {line.product_id.display_name}, Type: {line.product_id.type}, Qty: {line.product_uom_qty}")
@@ -47,10 +52,6 @@ class SaleOrder(models.Model):
             # Vérifier les produits stockables ET consommables (qui peuvent avoir du stock)
             if line.product_id.type in ('product', 'consu'):
                 # Utiliser l'emplacement par défaut de l'entrepôt de l'entreprise
-                warehouse = self.env['stock.warehouse'].search([
-                    ('company_id', '=', self.company_id.id)
-                ], limit=1)
-                location = warehouse.lot_stock_id if warehouse else None
                 _logger.info(f"STOCK PREVENTION: Utilisation entrepôt: {warehouse.name if warehouse else 'Aucun'}")
                 
                 if location:
@@ -65,7 +66,8 @@ class SaleOrder(models.Model):
                             'product': line.product_id.display_name,
                             'requested': line.product_uom_qty,
                             'available': available_qty,
-                            'uom': line.product_uom.name
+                            'uom': line.product_uom.name,
+                            'warehouse': warehouse_name,
                         })
                         _logger.warning(f"STOCK PREVENTION: Stock insuffisant pour {line.product_id.display_name}")
                 else:
@@ -75,12 +77,13 @@ class SaleOrder(models.Model):
         if insufficient_products:
             error_msg = _("Stock insuffisant pour les produits suivants :\n\n")
             for product_info in insufficient_products:
-                error_msg += _("• %s : Demandé %.2f %s, Disponible %.2f %s\n") % (
+                error_msg += _("• %s : Demandé %.2f %s, Disponible %.2f %s dans l'entrepôt %s\n") % (
                     product_info['product'],
                     product_info['requested'],
                     product_info['uom'],
                     product_info['available'],
-                    product_info['uom']
+                    product_info['uom'],
+                    product_info['warehouse'] or _('Inconnu'),
                 )
             error_msg += _("\nVeuillez ajuster les quantités ou réapprovisionner le stock.")
             
@@ -131,6 +134,7 @@ class SaleOrderLine(models.Model):
                     ('company_id', '=', self.order_id.company_id.id)
                 ], limit=1)
                 location = warehouse.lot_stock_id if warehouse else None
+                warehouse_name = warehouse.display_name if warehouse else None
                 
                 if location:
                     # Utiliser la méthode corrigée pour calculer le stock disponible
@@ -144,13 +148,15 @@ class SaleOrderLine(models.Model):
                                     'Attention : Stock insuffisant pour %s.\n'
                                     'Quantité demandée : %.2f %s\n'
                                     'Quantité disponible : %.2f %s\n\n'
+                                    'Entrepôt : %s\n\n'
                                     'La commande ne pourra pas être confirmée en l\'état.'
                                 ) % (
                                     self.product_id.display_name,
                                     self.product_uom_qty,
                                     self.product_uom.name,
                                     available_qty,
-                                    self.product_uom.name
+                                    self.product_uom.name,
+                                    warehouse_name or _('Inconnu'),
                                 )
                             }
                         }
