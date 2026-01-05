@@ -8,12 +8,35 @@ _logger = logging.getLogger(__name__)
 class PosOrder(models.Model):
     _inherit = 'pos.order'
 
+    def _get_stock_check_warehouse_location(self, session, picking_type):
+        """Détermine l'entrepôt et l'emplacement à utiliser pour la vérification stock POS.
+
+        Priorité:
+        - pos.session.warehouse_id (si le champ existe et est renseigné)
+        - picking_type.warehouse_id
+
+        Emplacement:
+        - picking_type.default_location_src_id si défini
+        - sinon warehouse.lot_stock_id
+        """
+        warehouse = None
+        if session and hasattr(session, 'warehouse_id') and session.warehouse_id:
+            warehouse = session.warehouse_id
+        else:
+            warehouse = getattr(picking_type, 'warehouse_id', False)
+
+        if not warehouse:
+            return None, None
+
+        location = getattr(picking_type, 'default_location_src_id', False) or warehouse.lot_stock_id
+        return warehouse, location
+
     def _get_available_quantity(self, product, location):
         """Récupère la quantité disponible d'un produit dans un emplacement
         Méthode inspirée du module mrp_stock_validation pour un calcul correct"""
         quants = self.env['stock.quant'].search([
             ('product_id', '=', product.id),
-            ('location_id', '=', location.id),
+            ('location_id', 'child_of', location.id),
         ])
         available_qty = sum(quants.mapped('available_quantity'))
         _logger.info(f"POS STOCK PREVENTION: Calcul stock pour {product.display_name} dans {location.name}: {available_qty}")
@@ -59,7 +82,7 @@ class PosOrder(models.Model):
                     if session and session.config_id and session.config_id.picking_type_id:
                         picking_type = session.config_id.picking_type_id
 
-                        warehouse = getattr(picking_type, 'warehouse_id', False)
+                        warehouse, location = self._get_stock_check_warehouse_location(session, picking_type)
                         _logger.info(
                             "POS STOCK PREVENTION DEBUG: session=%s config=%s picking_type=%s warehouse=%s lot_stock_id=%s",
                             session.display_name,
@@ -77,11 +100,11 @@ class PosOrder(models.Model):
                                 'picking_type': picking_type.display_name,
                             })
 
-                        location = warehouse.lot_stock_id
-                        _logger.info(
-                            "POS STOCK PREVENTION: Utilisation entrepôt picking type '%s' (emplacement: %s)"
-                            % (warehouse.display_name, location.display_name)
-                        )
+                        if warehouse and location:
+                            _logger.info(
+                                "POS STOCK PREVENTION: Utilisation entrepôt '%s' (emplacement: %s)"
+                                % (warehouse.display_name, location.display_name)
+                            )
 
                     if not location:
                         # Impossible de déterminer la localisation de stock du POS
@@ -169,6 +192,7 @@ class PosOrderLine(models.Model):
     def _validate_pos_line_stock(self, product, qty):
         """Valide le stock pour une ligne POS spécifique"""
         location = None
+        warehouse = None
         
         # Déterminer l'emplacement de stock
         if hasattr(self, 'order_id') and self.order_id.session_id:
@@ -176,7 +200,7 @@ class PosOrderLine(models.Model):
             if session.config_id and session.config_id.picking_type_id:
                 picking_type = session.config_id.picking_type_id
 
-                warehouse = getattr(picking_type, 'warehouse_id', False)
+                warehouse, location = self.order_id._get_stock_check_warehouse_location(session, picking_type)
                 _logger.info(
                     "POS STOCK PREVENTION DEBUG LINE: session=%s config=%s picking_type=%s warehouse=%s lot_stock_id=%s",
                     session.display_name,
@@ -185,12 +209,6 @@ class PosOrderLine(models.Model):
                     warehouse.display_name if warehouse else None,
                     warehouse.lot_stock_id.display_name if getattr(warehouse, 'lot_stock_id', False) else None,
                 )
-
-                # Si l'entrepôt ou son emplacement principal ne sont pas configurés ici,
-                # on ne lève pas d'erreur au niveau de la ligne : on laisse le contrôle
-                # global (_check_pos_stock_availability) gérer la configuration.
-                if warehouse and warehouse.lot_stock_id:
-                    location = warehouse.lot_stock_id
 
         # Si on n'a pas réussi à déterminer une localisation à ce niveau,
         # on sort silencieusement : pas d'erreur de config ici.
@@ -203,8 +221,8 @@ class PosOrderLine(models.Model):
 
             # Récupérer le nom de l'entrepôt associé au picking type, si possible
             warehouse_name = None
-            if 'session' in locals() and session.config_id and session.config_id.picking_type_id and getattr(session.config_id.picking_type_id, 'warehouse_id', False):
-                warehouse_name = session.config_id.picking_type_id.warehouse_id.display_name
+            if warehouse:
+                warehouse_name = warehouse.display_name
 
             # Vérifier si la quantité demandée est disponible
             if qty > available_qty:
